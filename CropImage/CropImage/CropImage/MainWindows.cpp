@@ -65,6 +65,41 @@ void returnDrawRect(int index, cv::Mat* mat, size_t thickness) {
 		height = bottom - top;
 	}
 }
+void returnDrawSaveRect(int index, cv::Mat* mat, size_t thickness) {
+	if (mat == NULL)
+		return;
+	CropRect& cropRect = DATA::saveCropList[index].first;
+	COLORREF& color = DATA::saveCropList[index].second;
+
+	int width = std::abs(cropRect.rect.right - cropRect.rect.left);
+	int height = std::abs(cropRect.rect.top - cropRect.rect.bottom);
+	int left = std::min(cropRect.rect.left, cropRect.rect.right);
+	int right = std::max(cropRect.rect.left, cropRect.rect.right);
+	int top = std::min(cropRect.rect.bottom, cropRect.rect.top);;
+	int bottom = std::max(cropRect.rect.bottom, cropRect.rect.top);;
+
+	for (size_t i = 0; i < thickness; i++) {
+		for (int y = 0; y < height; y++) {
+			cv::Vec3b& matPixelLeft = mat->at<cv::Vec3b>(top + y, left);
+			cv::Vec3b& matPixelRight = mat->at<cv::Vec3b>(top + y, right);
+			drawPixsel(matPixelLeft, color);
+			drawPixsel(matPixelRight, color);
+		}
+		for (int x = 0; x < width; x++) {
+			cv::Vec3b& matPixelTop = mat->at<cv::Vec3b>(top, left + x);
+			cv::Vec3b& matPixelBottom = mat->at<cv::Vec3b>(bottom, left + x);
+			drawPixsel(matPixelTop, color);
+			drawPixsel(matPixelBottom, color);
+		}
+
+		left++;
+		bottom--;
+		top++;
+		right--;
+		width = right - left;
+		height = bottom - top;
+	}
+}
 
 cv::Mat* returnMat(int index) {
 	if (index < 0 || index > 9)
@@ -119,9 +154,39 @@ cv::Mat* returnCropMat(int index, int cropIndex) {
 	return mat;
 }
 
+cv::Mat* returnCropMatSaveRect(int index, int cropIndex) {
+	if (index < 0 || index > 9)
+		return NULL;
+	if (!DATA::ImageList[index].b)
+		return NULL;
+
+	CropRect& cropRect = DATA::saveCropList[cropIndex].first;
+	BITMAP& bitmap = DATA::ImageList[index].bitmap;
+
+	size_t width = std::abs(cropRect.rect.right - cropRect.rect.left);
+	size_t height = std::abs(cropRect.rect.top - cropRect.rect.bottom);
+	size_t left = std::min(cropRect.rect.left, cropRect.rect.right);
+	size_t top = std::min(cropRect.rect.bottom, cropRect.rect.top);;
+
+	cv::Mat* mat = new cv::Mat(height, width, CV_8UC3);
+	mat->create(height, width, CV_8UC3);
+
+	for (int y = 0; y < height; y++) {
+		for (int x = 0; x < width; x++) {
+			RGBTRIPLE* pixel = reinterpret_cast<RGBTRIPLE*>(bitmap.bmBits) + (y + top) * bitmap.bmWidth + (x + left);
+			cv::Vec3b& matPixel = mat->at<cv::Vec3b>(y, x);
+			matPixel[0] = pixel->rgbtBlue;
+			matPixel[1] = pixel->rgbtGreen;
+			matPixel[2] = pixel->rgbtRed;
+		}
+	}
+	return mat;
+}
+
 LRESULT CALLBACK MainWindows::MainWindowProc(HWND hwnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
 {
 	static TCHAR tmpBuffer[200];
+	static std::string str;
 	static CHOOSECOLOR COL;
 	static COLORREF crTemp[16];
 	static cv::Mat* mat;
@@ -130,9 +195,12 @@ LRESULT CALLBACK MainWindows::MainWindowProc(HWND hwnd, UINT iMsg, WPARAM wParam
 
 	switch (iMsg)
 	{
+#pragma region DESTROY
 	case WM_DESTROY:
 		PostQuitMessage(0);
 		break;
+#pragma endregion
+#pragma region INIT
 	case WM_CREATE:
 		hScroll = ::CreateWindow(L"scrollbar", NULL, WS_CHILD | WS_VISIBLE | SBS_HORZ, 10, 70, 200, 20, hwnd, ID_hScroll, hInstance, NULL);
 		DATA::thickProgressBar = ::CreateWindow(L"scrollbar", NULL, WS_CHILD | WS_VISIBLE | SBS_VERT, 0, 0, 0, 0, hwnd, (HMENU)SCROLL_TH, hInstance, NULL);
@@ -163,11 +231,30 @@ LRESULT CALLBACK MainWindows::MainWindowProc(HWND hwnd, UINT iMsg, WPARAM wParam
 			DATA::cropList.push_back({ false,false,RECT() });
 		for (int i = 0; i < 10; i++)
 			DATA::cropColorList.push_back(RGB(255, 0, 0));
+
+		DATA::boxSave = CreateWindow(L"button",
+			L"box save",
+			WS_CHILD | WS_VISIBLE,
+			0, 0, 0, 0,
+			hwnd, (HMENU)BOX_SAVE, DATA::HInstance, NULL);
+
+		DATA::boxDelete = CreateWindow(L"button",
+			L"box delete",
+			WS_CHILD | WS_VISIBLE,
+			0, 0, 0, 0,
+			hwnd, (HMENU)BOX_DELETE, DATA::HInstance, NULL);
+
 		DATA::checkBox = CreateWindow(L"button",
 			L"free",
 			WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
 			0, 0, 0, 0,
 			hwnd, (HMENU)CHECK_BOX, DATA::HInstance, NULL);
+
+		DATA::saveBoxSize = CreateWindow(L"static",
+			L"0",
+			WS_CHILD | WS_VISIBLE,
+			0, 0, 0, 0,
+			hwnd, NULL, DATA::HInstance, NULL);
 
 		memset(&OFN, 0, sizeof(OPENFILENAME));
 		OFN.lStructSize = sizeof(OPENFILENAME);
@@ -185,9 +272,11 @@ LRESULT CALLBACK MainWindows::MainWindowProc(HWND hwnd, UINT iMsg, WPARAM wParam
 		DATA::programPath = std::filesystem::current_path().string() + "\\";
 		::SetScrollPos(DATA::thickProgressBar, SB_CTL, DATA::thick, TRUE);
 		break;
+#pragma endregion
+#pragma region SIZE
 	case WM_SIZE:
 		::SetWindowPos(DATA::thickProgressBar, NULL, (0 - ((float)scrollPos / 10)) * (DATA::window_size ? 430 : 800), 30, 30, 150, 0);
-		::SetWindowPos(DATA::checkBox, NULL, (-1 * ((float)scrollPos / 10)) * (DATA::window_size ? 430 : 800), 200, 50,50, 0);
+		::SetWindowPos(DATA::checkBox, NULL, (-1 * ((float)scrollPos / 10)) * (DATA::window_size ? 430 : 800), 200, 50, 50, 0);
 		::SetWindowPos(hScroll, NULL, 0, HIWORD(lParam) - 30, LOWORD(lParam), 30, 0);
 		for (int i = 0; i < DATA::gridList.size(); i++)
 			::SetWindowPos(DATA::gridList[i], NULL, 50 + ((float)i - ((float)scrollPos / 10)) * (DATA::window_size ? 430 : 800), 50, DATA::window_size ? 384 : 768, DATA::window_size ? 384 : 768, 0);
@@ -203,8 +292,16 @@ LRESULT CALLBACK MainWindows::MainWindowProc(HWND hwnd, UINT iMsg, WPARAM wParam
 			::SetWindowPos(DATA::resetCropList[i], NULL, 50 + ((float)i - ((float)scrollPos / 10)) * (DATA::window_size ? 430 : 800) + 230, 25, 100, 20, 0);
 		for (int i = 0; i < DATA::colorButtonList.size(); i++)
 			::SetWindowPos(DATA::colorButtonList[i], NULL, 50 + ((float)i - ((float)scrollPos / 10)) * (DATA::window_size ? 430 : 800) + 330, 25, 50, 20, 0);
+
+		::SetWindowPos(DATA::boxSave, NULL, 50 + (-1 * ((float)scrollPos / 10)) * (DATA::window_size ? 430 : 800), 80 + (DATA::window_size ? 384 : 768), 80, 20, 0);
+		::SetWindowPos(DATA::boxDelete, NULL, 50 + (-1 * ((float)scrollPos / 10)) * (DATA::window_size ? 430 : 800), 100 + (DATA::window_size ? 384 : 768), 80, 20, 0);
+		::SetWindowPos(DATA::saveBoxSize, NULL, 50 + (-1 * ((float)scrollPos / 10)) * (DATA::window_size ? 430 : 800), 120 + (DATA::window_size ? 384 : 768), 80, 20, 0);
+
+
 		::InvalidateRect(hwnd, NULL, TRUE);
 		break;
+#pragma endregion
+#pragma region SCROLL
 	case WM_VSCROLL:
 		switch (LOWORD(wParam))
 		{
@@ -246,8 +343,8 @@ LRESULT CALLBACK MainWindows::MainWindowProc(HWND hwnd, UINT iMsg, WPARAM wParam
 			scrollPos = HIWORD(wParam);
 			break;
 		}
-		::SetWindowPos(DATA::thickProgressBar, NULL, (-1 * ((float)scrollPos / 10))* (DATA::window_size ? 430 : 800), 30, 30, 150, 0);
-		::SetWindowPos(DATA::checkBox, NULL, (-1 * ((float)scrollPos / 10))* (DATA::window_size ? 430 : 800), 200, 50, 50, 0);
+		::SetWindowPos(DATA::thickProgressBar, NULL, (-1 * ((float)scrollPos / 10)) * (DATA::window_size ? 430 : 800), 30, 30, 150, 0);
+		::SetWindowPos(DATA::checkBox, NULL, (-1 * ((float)scrollPos / 10)) * (DATA::window_size ? 430 : 800), 200, 50, 50, 0);
 		for (int i = 0; i < DATA::gridList.size(); i++)
 			::SetWindowPos(DATA::gridList[i], NULL, 50 + ((float)i - ((float)scrollPos / 10)) * (DATA::window_size ? 430 : 800), 50, DATA::window_size ? 384 : 768, DATA::window_size ? 384 : 768, 0);
 		for (int i = 0; i < DATA::fileWriteList.size(); i++)
@@ -263,9 +360,15 @@ LRESULT CALLBACK MainWindows::MainWindowProc(HWND hwnd, UINT iMsg, WPARAM wParam
 		for (int i = 0; i < DATA::colorButtonList.size(); i++)
 			::SetWindowPos(DATA::colorButtonList[i], NULL, 50 + ((float)i - ((float)scrollPos / 10)) * (DATA::window_size ? 430 : 800) + 330, 25, 50, 20, 0);
 		::SetScrollPos(hScroll, SB_CTL, scrollPos, TRUE);
-		
+
+		::SetWindowPos(DATA::boxSave, NULL, 50 + (-1 * ((float)scrollPos / 10)) * (DATA::window_size ? 430 : 800), 80 + (DATA::window_size ? 384 : 768), 80, 20, 0);
+		::SetWindowPos(DATA::boxDelete, NULL, 50 + (-1 * ((float)scrollPos / 10)) * (DATA::window_size ? 430 : 800), 100 + (DATA::window_size ? 384 : 768), 80, 20, 0);
+		::SetWindowPos(DATA::saveBoxSize, NULL, 50 + (-1 * ((float)scrollPos / 10)) * (DATA::window_size ? 430 : 800), 120 + (DATA::window_size ? 384 : 768), 80, 20, 0);
+
 		::InvalidateRect(hwnd, NULL, TRUE);
 		break;
+#pragma endregion
+#pragma region WINDOW
 	case WM_GETMINMAXINFO:
 		if (DATA::window_size) {
 			((LPMINMAXINFO)lParam)->ptMinTrackSize.x = MIN_SIZE_X;
@@ -288,8 +391,11 @@ LRESULT CALLBACK MainWindows::MainWindowProc(HWND hwnd, UINT iMsg, WPARAM wParam
 		if (wParam == SC_MAXIMIZE)
 			DATA::window_size = !DATA::window_size;
 		break;
+#pragma endregion 
+#pragma region COMMAND
 	case WM_COMMAND:
-		switch (LOWORD(wParam)) { 
+		switch (LOWORD(wParam)) {
+#pragma region CHECK_BOX
 		case CHECK_BOX:
 			switch (HIWORD(wParam)) {
 			case BN_CLICKED: // push 
@@ -305,7 +411,9 @@ LRESULT CALLBACK MainWindows::MainWindowProc(HWND hwnd, UINT iMsg, WPARAM wParam
 			}
 			break;
 		}
+#pragma endregion
 		switch (wParam) {
+#pragma region FILE_LOAD
 		case FILE_BUTTON_ID(0):
 		case FILE_BUTTON_ID(1):
 		case FILE_BUTTON_ID(2):
@@ -321,10 +429,12 @@ LRESULT CALLBACK MainWindows::MainWindowProc(HWND hwnd, UINT iMsg, WPARAM wParam
 				wchar_t* pos = szFileName;
 				for (int j = 0; j < 100; j++)
 					if (szFileName[j] == L'\\')
-						pos = &szFileName[j+1];
+						pos = &szFileName[j + 1];
 				SetWindowText(DATA::textList[wParam - FILE_BUTTON_ID(0)], pos);
 			}
 			break;
+#pragma endregion
+#pragma region RESET
 		case RESET_IMAGE_BUTTON_ID(0):
 		case RESET_IMAGE_BUTTON_ID(1):
 		case RESET_IMAGE_BUTTON_ID(2):
@@ -365,6 +475,9 @@ LRESULT CALLBACK MainWindows::MainWindowProc(HWND hwnd, UINT iMsg, WPARAM wParam
 			if (ChooseColor(&COL) != 0)
 				DATA::cropColorList[wParam - COLOR_BUTTON_ID(0)] = COL.rgbResult;
 			break;
+#pragma endregion
+#pragma region IMAGE_SAVE
+#pragma region IMAGE_ALL
 		case WRITE_BUTTON_ID(0):
 			ssDouble.str("");
 			ssDouble << time(NULL);
@@ -373,9 +486,11 @@ LRESULT CALLBACK MainWindows::MainWindowProc(HWND hwnd, UINT iMsg, WPARAM wParam
 				if (mat == NULL)
 					continue;
 				returnDrawRect(0, mat, DATA::thick);
+				for (int i = 0; i < DATA::saveCropList.size();i++) 
+					returnDrawSaveRect(i, mat, DATA::thick);
 				GetWindowText(DATA::textList[i], tmpBuffer, 200);
 				path = tmpBuffer;
-				saveImage(mat, ssDouble.str(),"\\"+ path.string());
+				saveImage(mat, ssDouble.str(), "\\" + path.string());
 				delete mat;
 				mat = NULL;
 			}
@@ -389,8 +504,22 @@ LRESULT CALLBACK MainWindows::MainWindowProc(HWND hwnd, UINT iMsg, WPARAM wParam
 				delete mat;
 				mat = NULL;
 			}
-
+			for (int i = 0; i < 10; i++) {
+				for (int j = 0; j < DATA::saveCropList.size();j++) {
+					mat = returnCropMatSaveRect(i, j);
+					if (mat == NULL)
+						continue;
+					GetWindowText(DATA::textList[i], tmpBuffer, 200);
+					path = tmpBuffer;
+					str = (j+48);
+					saveImage(mat, ssDouble.str(), "\\crop_" + str + "_" + path.string());
+					delete mat;
+					mat = NULL;
+				}
+			}
 			break;
+#pragma endregion
+#pragma region IMAGE_SAVE_SINGLE
 		case WRITE_BUTTON_ID(1):
 		case WRITE_BUTTON_ID(2):
 		case WRITE_BUTTON_ID(3):
@@ -440,10 +569,28 @@ LRESULT CALLBACK MainWindows::MainWindowProc(HWND hwnd, UINT iMsg, WPARAM wParam
 			delete mat;
 			mat = NULL;
 			break;
+#pragma endregion
+#pragma endregion
+#pragma region BOX_SAVE_DELETE
+		case BOX_SAVE:
+			DATA::saveCropList.push_back({ DATA::cropList[0] ,DATA::cropColorList[0] });
+			swprintf_s(tmpBuffer, 200, L"%d", DATA::saveCropList.size());
+			SetWindowText(DATA::saveBoxSize, (TCHAR*)tmpBuffer);
+			break;
+		case BOX_DELETE:
+			if (DATA::saveCropList.size() == 0)
+				break;
+			DATA::saveCropList.pop_back();
+			swprintf_s(tmpBuffer, 200, L"%d", DATA::saveCropList.size());
+			SetWindowText(DATA::saveBoxSize, (TCHAR*)tmpBuffer);
+			break;
+#pragma endregion
 		}
+
 		::InvalidateRect(hwnd, NULL, TRUE);
 		break;
 	}
+#pragma endregion
 	return DefWindowProc(hwnd, iMsg, wParam, lParam);
 }
 
@@ -504,7 +651,6 @@ MainWindows* MainWindows::GetInstance()
 		throw std::runtime_error("Does not init");
 	return instance;
 }
-
 
 LRESULT MainWindows::sMainWindowProc(HWND hwnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
 {

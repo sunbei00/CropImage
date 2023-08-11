@@ -18,6 +18,10 @@
 #define SCROLL_TH (0x1050)
 #define CHECK_BOX (0x1060)
 
+
+#define BOX_SAVE 0x1070
+#define BOX_DELETE 0x1071
+
 #ifndef GetRValue	
 #define GetRValue(rgb)	( (BYTE)(rgb) )
 #endif
@@ -27,6 +31,7 @@
 #ifndef GetBValue
 #define GetBValue(rgb)	( (BYTE)((rgb)>>16) )
 #endif
+
 
 
 typedef struct {
@@ -48,6 +53,9 @@ public:
 	static int thick;
 	static HWND thickProgressBar;
 	static HWND checkBox;
+	static HWND boxSave;
+	static HWND boxDelete;
+	static HWND saveBoxSize;
 	static std::string programPath;
 	static std::vector<HWND> gridList;
 	static std::vector<HWND> textList;
@@ -58,6 +66,7 @@ public:
 	static std::vector<HWND> colorButtonList;
 	static std::vector<imageDATA> ImageList;
 	static std::vector<CropRect> cropList;
+	static std::vector<std::pair<CropRect, COLORREF>> saveCropList;
 	static std::vector<COLORREF> cropColorList;
 	static boolean window_size;
 	static boolean check; // 체크 : 프리 , 언체크 : 정사각형

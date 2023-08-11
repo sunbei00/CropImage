@@ -163,6 +163,38 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
 				DeleteObject(hbr);
 				DeleteObject(hpen);
 			}
+			for (auto& it : DATA::saveCropList) {
+				if (i == 0) {
+					for (int j = 0; j < 10; j++) {
+						if (!DATA::cropList[j].b)
+							continue;
+						hbr = (HBRUSH)GetStockObject(NULL_BRUSH);
+						hpen = CreatePen(PS_SOLID, DATA::thick, it.second);
+						hbrOld = (HBRUSH)::SelectObject(hdcMem, hbr);
+						hpenOld = (HPEN)::SelectObject(hdcMem, (HGDIOBJ)hpen);
+
+						Rectangle(hdcMem, it.first.rect.left, it.first.rect.top, it.first.rect.right, it.first.rect.bottom);
+
+						hbr = (HBRUSH)::SelectObject(hdcMem, hbrOld);
+						hpen = (HPEN)::SelectObject(hdcMem, hpenOld);
+						DeleteObject(hbr);
+						DeleteObject(hpen);
+					}
+				}
+				if (i != 0 && DATA::cropList[0].b) {
+					hbr = (HBRUSH)GetStockObject(NULL_BRUSH);
+					hpen = CreatePen(PS_SOLID, DATA::thick, it.second);
+					hbrOld = (HBRUSH)::SelectObject(hdcMem, hbr);
+					hpenOld = (HPEN)::SelectObject(hdcMem, (HGDIOBJ)hpen);
+
+					Rectangle(hdcMem, it.first.rect.left, it.first.rect.top, it.first.rect.right, it.first.rect.bottom);
+
+					hbr = (HBRUSH)::SelectObject(hdcMem, hbrOld);
+					hpen = (HPEN)::SelectObject(hdcMem, hpenOld);
+					DeleteObject(hbr);
+					DeleteObject(hpen);
+				}
+			}
 
 			StretchBlt(hdc, 0, 0, bitmap.bmWidth * (DATA::window_size ? 1 : 2), bitmap.bmHeight * (DATA::window_size ? 1 : 2), hdcMem, 0, 0, bitmap.bmWidth, bitmap.bmHeight, SRCCOPY);
 

@@ -14,12 +14,17 @@ std::vector<HWND> DATA::colorButtonList;
 std::vector<imageDATA> DATA::ImageList;
 std::vector<COLORREF> DATA::cropColorList;
 std::vector<CropRect> DATA::cropList;
+std::vector<std::pair<CropRect,COLORREF>> DATA::saveCropList;
 boolean DATA::window_size = true;
 HWND DATA::checkBox;
 int DATA::thick = 3;
 std::string DATA::programPath;
 HWND DATA::thickProgressBar;
 boolean DATA::check = false;
+
+HWND DATA::boxSave;
+HWND DATA::boxDelete;
+HWND DATA::saveBoxSize;
 
 
 void DATA::CreateGrid(TCHAR* windowName, HWND hwnd)
