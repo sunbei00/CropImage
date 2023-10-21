@@ -1,55 +1,35 @@
-#include "imgui.h"
-#include "imgui_impl_opengl3.h"
-#include "imgui_impl_win32.h"
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+
 #include <filesystem>
 #include <windows.h>
 #include <commdlg.h>
 #include <GL/GL.h>
 #include <tchar.h>
-#include <string>
-#include <map>
+#include <chrono>
+#include "imgui_impl_opengl3.h"
+#include "imgui_impl_win32.h"
 #include "opencv.hpp"
 #include "utils.h"
-
-struct WGL_WindowData { HDC hDC; };
-
-static HGLRC            g_hRC;
-static WGL_WindowData   g_MainWindow;
-static int              g_Width;
-static int              g_Height;
+#include "update.h"
+#include "cropImage.h"
 
 bool CreateDeviceWGL(HWND hWnd, WGL_WindowData* data);
 void CleanupDeviceWGL(HWND hWnd, WGL_WindowData* data);
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-void openFiles(bool isMulti);
+void openFiles();
+void getArea();
 void clearImage();
-void updateKeyboard(std::string);
-void updateKeyboard();
-void updateMouse();
+void drawBox(ImVec4 box, ImVec4 inColor);
+void drawImage();
+void optionGUI();
+void imageSelectGUI();
+void imageGUI();
+void render();
+void callbackSave();
 
-std::map<std::string, unsigned int> imagesGL;
-std::map<std::string, cv::Mat> imagesCV;
-std::map<std::string, ImVec2> imageSize;
-std::map<std::string, bool> onWindow;
-
-WNDCLASSEXW wc;
-HWND hwnd;
-float boxSize = 1.0;
-bool isFree = false;
-std::string textureName = "-1";
-ImVec4 color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
-
-
-ImVec4 area;
-ImVec4 currBox;
-
-int main(int, char**)
-{
-
-#pragma region IMGUI_SETTING
+int main(int, char**) {
 	wc = { sizeof(wc), CS_OWNDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, L"Crop Image", NULL };
 	::RegisterClassExW(&wc);
 	hwnd = ::CreateWindowW(wc.lpszClassName, L"Crop Image", WS_OVERLAPPEDWINDOW, 100, 100, 1660, 1080, NULL, NULL, wc.hInstance, NULL);
@@ -59,7 +39,7 @@ int main(int, char**)
 		CleanupDeviceWGL(hwnd, &g_MainWindow);
 		::DestroyWindow(hwnd);
 		::UnregisterClassW(wc.lpszClassName, wc.hInstance);
-		return 1;
+		return true;
 	}
 	wglMakeCurrent(g_MainWindow.hDC, g_hRC);
 
@@ -75,20 +55,10 @@ int main(int, char**)
 	ImGui::StyleColorsDark();
 	ImGui_ImplWin32_InitForOpenGL(hwnd);
 	ImGui_ImplOpenGL3_Init();
-#pragma endregion
 
-	ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
-
-	glEnable(GL_TEXTURE_2D);
-
-	bool done = false;
-	while (!done)
-	{
-
-#pragma region MSG
+	while (!done) {
 		MSG msg;
-		while (::PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE))
-		{
+		while (::PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE)) {
 			::TranslateMessage(&msg);
 			::DispatchMessage(&msg);
 			if (msg.message == WM_QUIT)
@@ -96,123 +66,18 @@ int main(int, char**)
 		}
 		if (done)
 			break;
-#pragma endregion 
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplWin32_NewFrame();
 		ImGui::NewFrame();
 
-#pragma region MIDDLE_AREA
-		float scale = 1.0f;
-		if (textureName != "-1") {
-			int middle_w = g_Width / 2;
-			int middle_h = g_Height / 2;
-			auto size = imageSize[textureName];
-			
-			while (size.x < 800 || size.y < 800) {
-				size.x *= 1.3f;
-				size.y *= 1.3f;
-				scale *= 1.3f;
-			}
-			area.x = middle_w = middle_w - size.x / 2;
-			area.y = middle_h - size.y / 2;
-			area.z = size.x;
-			area.w = size.y;
-		}
-#pragma endregion
-#pragma region KEYBOARD
+		scale = 1.0f;
+		getArea();
 		updateKeyboard();
-#pragma endregion
-#pragma region IMAGE_SELECT
-		ImGui::Begin("Image Select");
-		ImGui::SetWindowPos({ 0,0 });
-		auto selectWindowSize = ImGui::GetWindowSize();
-		if (ImGui::Button("Single Image"))
-			openFiles(false);
-		if (ImGui::Button("Multiple Image"))
-			openFiles(true);
-		ImGui::NewLine();
-		for (const auto& file : imagesGL)
-			if (ImGui::Selectable(file.first.c_str()))
-				if (textureName != file.first)
-					onWindow[file.first] = !onWindow[file.first];
-		ImGui::End();
-#pragma endregion
-#pragma region IMAGE_GUI
-		for (auto& it : onWindow) {
-			if (it.second) {
-				ImGui::Begin(it.first.c_str());
-				ImVec2 windowSize = ImGui::GetWindowSize();
-				float windowWidth = windowSize.x;
-				float windowHeight = windowSize.y;
-				ImGui::Image(reinterpret_cast<ImTextureID>(imagesGL[it.first]), ImVec2(windowWidth, windowHeight));
-				updateKeyboard(it.first);
-				ImGui::End();
-			}
-		}
-#pragma endregion
-#pragma region OPTION
-		ImGui::Begin("Option");
-		ImGui::SetWindowPos({ 0,selectWindowSize.y });
-		ImGui::DragFloat("Box Size", &boxSize, 0.1f, 0.01, 20);
-		ImGui::Text("Capture Mode : ctrl + x");
-		ImGui::Text("Undo Capture : ctrl + z");
-		ImGui::Text("Exit Mode : ctrl + c");
-		ImGui::Text("Close Image : ctrl + w");
-		ImGui::Text("Delete Image : ctrl + r");
-		ImGui::Text("Save Box : ctrl + s");
-		ImGui::Checkbox("Free", &isFree);
-		ImGui::ColorEdit4("Color", (float*)&color); 
-		if (ImGui::Button("Reset Box")) {
-
-		}
-		if (ImGui::Button("Save Images")) {
-
-		}
-		ImGui::End();
-#pragma endregion
-#pragma region MOUSE
+		imageSelectGUI();
+		optionGUI();
+		imageGUI();
 		updateMouse();
-#pragma endregion
-#pragma region RENDERING
-		ImGui::Render();
-		glViewport(0, 0, g_Width, g_Height);
-		glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
-		glClear(GL_COLOR_BUFFER_BIT);
-
-		if (textureName != "-1") {
-			glBindTexture(GL_TEXTURE_2D, imagesGL[textureName]);
-			glViewport(area.x, area.y, area.z, area.w);
-
-			glBegin(GL_QUADS);
-			glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.f, -1.f);
-			glTexCoord2f(1.0f, 0.0f); glVertex2f(1.f, -1.f);
-			glTexCoord2f(1.0f, 1.0f); glVertex2f(1.f, 1.f);
-			glTexCoord2f(0.0f, 1.0f); glVertex2f(-1.f, 1.f);
-			glEnd();
-
-
-			ImVec4 box = currBox;
-			box.x = (box.x - 0.5) * 2;
-			box.y = (box.y - 0.5) * 2;
-			box.z = (box.z - 0.5) * 2;
-			box.w = (box.w - 0.5) * 2;
-			box.w *= -1;
-			box.y *= -1;
-			glLineWidth(boxSize * scale);
-			glBegin(GL_LINE_LOOP);
-			glVertex2f(box.x, box.y);
-			glVertex2f(box.z, box.y);
-			glVertex2f(box.z, box.w);
-			glVertex2f(box.x, box.w);
-			glEnd();
-			glColor3f(1.0f, 1.0f, 1.0f);
-
-			glBindTexture(GL_TEXTURE_2D, 0);
-		}
-
-		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-		::SwapBuffers(g_MainWindow.hDC);
-#pragma endregion
+		render();
 	}
 
 	clearImage();
@@ -224,103 +89,12 @@ int main(int, char**)
 	wglDeleteContext(g_hRC);
 	::DestroyWindow(hwnd);
 	::UnregisterClassW(wc.lpszClassName, wc.hInstance);
-
 	return 0;
 }
 
-void updateMouse() {
-	ImGuiIO& io = ImGui::GetIO();
-	if (textureName == "-1")
-		return;
-	if (ImGui::IsWindowFocused() || ImGui::IsWindowHovered())
-		return;
-	float mouseX = io.MousePos.x;
-	float mouseY = io.MousePos.y;
 
-	static bool isDown = false;
-	if (io.MouseDown[0] && !isDown) {
 
-		if (mouseX <= area.x || mouseX >= area.x + area.z)
-			return;
-		if (mouseY <= area.y || mouseY >= area.y + area.w)
-			return;
-		printf("down\n");
-		isDown = true;
-		currBox.x = (mouseX - area.x) / area.z;
-		currBox.y = (mouseY - area.y) / area.w;
-		currBox.z = currBox.x;
-		currBox.w = currBox.y;
-	}
-	if (io.MouseDown[0]) {
-
-		if (mouseX <= area.x || mouseX >= area.x + area.z)
-			return;
-		if (mouseY <= area.y || mouseY >= area.y + area.w)
-			return;
-	}
-
-	if (!io.MouseDown[0]) {
-		if (isDown) {
-			isDown = false;
-			if (textureName == "-1")
-				return;
-			printf("up\n");
-			currBox.z = (mouseX - area.x) / area.z;
-			currBox.w = (mouseY - area.y) / area.w;
-			currBox.z = std::clamp(currBox.z, 0.f, 1.f);
-			currBox.w = std::clamp(currBox.w, 0.f, 1.f);
-
-			float tmp = std::min(currBox.z, currBox.x);
-			currBox.z = std::max(currBox.z, currBox.x);
-			currBox.x = tmp;
-			tmp = std::min(currBox.w, currBox.y);
-			currBox.w = std::max(currBox.w, currBox.y);
-			currBox.y = tmp;
-		}
-	}
-
-}
-
-void updateKeyboard(std::string name) {
-	ImGuiIO& io = ImGui::GetIO();
-	if (!ImGui::IsWindowFocused())
-		return;
-	if (!io.KeyCtrl)
-		return;
-
-	if (io.KeysDown['W'])
-		onWindow[name] = false;
-	if (io.KeysDown['R']) {
-		onWindow.erase(name);
-		glDeleteTextures(1, &imagesGL[name]);
-		imagesGL.erase(name);
-		imagesCV.erase(name);
-		imageSize.erase(name);
-	}
-	if (io.KeysDown['X'] && textureName == "-1") {
-		onWindow[name] = false;
-		textureName = name;
-	}
-
-}
-
-void updateKeyboard() {
-	ImGuiIO& io = ImGui::GetIO();
-	if (GetForegroundWindow() != hwnd && ImGui::IsWindowFocused())
-		return;
-	if (!io.KeyCtrl)
-		return;;
-	if (io.KeysDown['C'] && textureName != "-1") {
-		onWindow[textureName] = true;
-		textureName = "-1";
-	}
-	if (io.KeysDown['Z']) {
-
-	}
-}
-
-bool CreateDeviceWGL(HWND hWnd, WGL_WindowData* data)
-{
+bool CreateDeviceWGL(HWND hWnd, WGL_WindowData* data) {
 	HDC hDc = ::GetDC(hWnd);
 	PIXELFORMATDESCRIPTOR pfd = { 0 };
 	pfd.nSize = sizeof(pfd);
@@ -342,16 +116,14 @@ bool CreateDeviceWGL(HWND hWnd, WGL_WindowData* data)
 	return true;
 }
 
-void CleanupDeviceWGL(HWND hWnd, WGL_WindowData* data)
-{
+void CleanupDeviceWGL(HWND hWnd, WGL_WindowData* data) {
 	wglMakeCurrent(NULL, NULL);
 	::ReleaseDC(hWnd, data->hDC);
 }
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
+LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
 		return true;
 
@@ -365,7 +137,7 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		}
 		return 0;
 	case WM_SYSCOMMAND:
-		if ((wParam & 0xfff0) == SC_KEYMENU) // Disable ALT application menu
+		if ((wParam & 0xfff0) == SC_KEYMENU)
 			return 0;
 		break;
 	case WM_DESTROY:
@@ -376,8 +148,7 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 }
 
 
-#define MAX_FILES_SELECT 100
-void openFiles(bool isMulti) {
+void openFiles() {
 	OPENFILENAME ofn;
 	size_t size = sizeof(TCHAR) * MAX_PATH * MAX_FILES_SELECT;
 	TCHAR* szFile = (TCHAR*)malloc(size);
@@ -390,62 +161,35 @@ void openFiles(bool isMulti) {
 	ofn.lpstrFileTitle = NULL;
 	ofn.nMaxFileTitle = 0;
 	ofn.lpstrInitialDir = NULL;
-	if (isMulti) {
-		ofn.Flags = OFN_ALLOWMULTISELECT | OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_EXPLORER;
+	ofn.Flags = OFN_ALLOWMULTISELECT | OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_EXPLORER;
 
-		if (GetOpenFileName(&ofn) == TRUE) {
-			TCHAR* p = ofn.lpstrFile;
-			std::wstring directory = p;
-			p += directory.size() + 1;
-			std::wstring slash = L"\\";
-			while (*p) {
-				std::wstring filename = p;
-				p += filename.size() + 1;
-
-				std::wstring filePath = directory + slash + filename;
-				std::filesystem::path path = filePath.c_str();
-				int size_needed = WideCharToMultiByte(CP_UTF8, 0, &filename.c_str()[0], (int)filename.size(), NULL, 0, NULL, NULL);
-				std::string utf8_string(size_needed, 0);
-				WideCharToMultiByte(CP_UTF8, 0, &filename.c_str()[0], (int)filename.size(), &utf8_string[0], size_needed, NULL, NULL);
-				auto str = delimiter(utf8_string);
-
-				if (imagesGL.find(str) != imagesGL.end()) {
-					wprintf(L"Exist : %s%s\n", directory.c_str(), filename.c_str());
-					continue;
-				}
-				cv::Mat image = cv::imread(path.string(), cv::IMREAD_COLOR);
-				cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
-				unsigned int texture;
-				glGenTextures(1, &texture);
-				glBindTexture(GL_TEXTURE_2D, texture);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-				glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, image.cols, image.rows, 0, GL_RGB, GL_UNSIGNED_BYTE, image.data);
-				glBindTexture(GL_TEXTURE_2D, 0);
-
-				imagesGL.insert({ str, texture });
-				imageSize.insert({ str, ImVec2{(float)image.cols,(float)image.rows} });
-				onWindow.insert({ str, false });
-				imagesCV.insert({ str, image });
-				wprintf(L"Add : %s%s\n", directory.c_str(), filename.c_str());
-			}
+	if (GetOpenFileName(&ofn) == TRUE) {
+		TCHAR* p = ofn.lpstrFile;
+		std::wstring directory = p;
+		p += directory.size() + 1;
+		std::wstring slash = L"\\";
+		if (IsFile(directory.c_str())) {
+			size_t pos = directory.rfind(L'\\');
+			directory.clear();
+			for (size_t i = 0; i < pos; i++)
+				directory.push_back(ofn.lpstrFile[i]);
+			p = ofn.lpstrFile + directory.size() + 1;
 		}
-	}
-	else {
-		ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+		while (*p) {
 
-		if (GetOpenFileName(&ofn) == TRUE) {
-			std::filesystem::path path = ofn.lpstrFile;
-			int size_needed = WideCharToMultiByte(CP_UTF8, 0, &ofn.lpstrFile[0], (int)ofn.lStructSize, NULL, 0, NULL, NULL);
+			std::wstring filename = p;
+			p += filename.size() + 1;
+
+			std::wstring filePath = directory + slash + filename;
+			std::filesystem::path path = filePath.c_str();
+			int size_needed = WideCharToMultiByte(CP_UTF8, 0, &filename.c_str()[0], (int)filename.size(), NULL, 0, NULL, NULL);
 			std::string utf8_string(size_needed, 0);
-			WideCharToMultiByte(CP_UTF8, 0, &ofn.lpstrFile[0], (int)ofn.lStructSize, &utf8_string[0], size_needed, NULL, NULL);
+			WideCharToMultiByte(CP_UTF8, 0, &filename.c_str()[0], (int)filename.size(), &utf8_string[0], size_needed, NULL, NULL);
 			auto str = delimiter(utf8_string);
 
 			if (imagesGL.find(str) != imagesGL.end()) {
-				printf("Exist : %s\n", utf8_string.c_str());
-				goto finish;
+				wprintf(L"Exist : %s\n", filePath.c_str());
+				continue;
 			}
 			cv::Mat image = cv::imread(path.string(), cv::IMREAD_COLOR);
 			cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
@@ -460,21 +204,188 @@ void openFiles(bool isMulti) {
 			glBindTexture(GL_TEXTURE_2D, 0);
 
 			imagesGL.insert({ str, texture });
-			imageSize.insert({ str, ImVec2{(float)image.cols,(float)image.rows} });
+			imageSize.insert({ str, {image.cols,image.rows}});
 			onWindow.insert({ str, false });
 			imagesCV.insert({ str, image });
-			printf("Add : %s\n", utf8_string.c_str());
+			wprintf(L"Add : %s\n", filePath.c_str());
 		}
 	}
-
-finish:;
 	free(szFile);
 }
-
-
 
 void clearImage() {
 	for (auto& image : imagesGL)
 		glDeleteTextures(1, &image.second);
 	imagesGL.clear();
+}
+
+void getArea() {
+	std::pair<int, int> size;
+	int middle_w = g_Width / 2;
+	int middle_h = g_Height / 2;
+	if (textureName != "-1") {
+		size = imageSize[textureName];
+
+		while (size.first < 800 || size.second < 800) {
+			size.first *= 1.3f;
+			size.second *= 1.3f;
+			scale *= 1.3f;
+		}
+		area.x = middle_w = middle_w - size.first / 2;
+		area.y = middle_h - size.second / 2;
+		area.z = size.first;
+		area.w = size.second;
+	}
+	else {
+		size = { 800,800 };
+		area.x = middle_w = middle_w - size.first / 2;
+		area.y = middle_h - size.second / 2;
+		area.z = size.first;
+		area.w = size.second;
+	}
+}
+
+void drawBox(ImVec4 box, ImVec4 inColor) {
+	box.x = (box.x - 0.5) * 2;
+	box.y = (box.y - 0.5) * 2;
+	box.z = (box.z - 0.5) * 2;
+	box.w = (box.w - 0.5) * 2;
+	box.w *= -1;
+	box.y *= -1;
+	glLineWidth(boxSize * scale);
+	glColor4f(inColor.x, inColor.y, inColor.z, inColor.w);
+	glBegin(GL_LINE_LOOP);
+	glVertex2f(box.x, box.y);
+	glVertex2f(box.z, box.y);
+	glVertex2f(box.z, box.w);
+	glVertex2f(box.x, box.w);
+	glEnd();
+	glColor4f(1, 1, 1, 1);
+}
+
+
+void optionGUI() {
+	ImGui::Begin("Option");
+	ImGui::SetWindowPos({ 0, selectWindowSize.y });
+	char str[100];
+	sprintf_s(str, 100, "Box List Size : %zu", boxList.size());
+	ImGui::Text(str);
+
+	ImGui::Separator();
+	ImGui::Text("Exit Mode : ctrl + c");
+	ImGui::Text("Capture Mode : ctrl + x");
+	ImGui::Text("Capture Box : ctrl + s");
+	ImGui::Text("Reset Capture : ctrl + r");
+	ImGui::Separator();
+	ImGui::Text("Close Image : ctrl + w");
+	ImGui::Text("Delete Image : ctrl + z");
+	ImGui::Separator();
+	ImGui::Checkbox("Free", &isFree);
+	ImGui::DragInt("Box Size", &boxSize, 1, 1, 20);
+	ImGui::ColorEdit4("Color", (float*)&color);
+	ImGui::Separator();
+	if (ImGui::Button("Save Images")) 
+		callbackSave();
+	ImGui::End();
+}
+
+void imageSelectGUI() {
+	ImGui::Begin("Image Select");
+	selectWindowSize = ImGui::GetWindowSize();
+	ImGui::SetWindowPos({ 0,0 });
+	if (ImGui::Button("Image Select"))
+		openFiles();
+	ImGui::Separator();
+	for (const auto& file : imagesGL)
+		if (ImGui::Selectable(file.first.c_str()))
+			if (textureName != file.first)
+				onWindow[file.first] = !onWindow[file.first];
+	ImGui::End();
+}
+
+void imageGUI() {
+	for (auto& it : onWindow) {
+		if (it.second) {
+			ImGui::SetNextWindowPos(ImVec2(area.x + area.w + area.x / 4, 100), ImGuiCond_Once);
+			ImGui::SetNextWindowSize(ImVec2(area.x / 2, area.x / 2), ImGuiCond_Once);
+			ImGui::Begin(it.first.c_str());
+			ImVec2 windowSize = ImGui::GetContentRegionAvail();
+			float boxScale = std::max(imageSize[it.first].first / windowSize.x, imageSize[it.first].second / windowSize.y);
+			ImVec2 paddingSize = { ImGui::GetStyle().WindowPadding.x, ImGui::GetFontSize() + ImGui::GetStyle().FramePadding.y * 2 + ImGui::GetStyle().WindowPadding.y };
+			ImGui::Image(reinterpret_cast<ImTextureID>(imagesGL[it.first]), ImVec2(windowSize.x, windowSize.y));
+			if (textureName != "-1") {
+				ImVec2 min = { ImGui::GetWindowPos().x + currBox.x * windowSize.x + paddingSize.x, ImGui::GetWindowPos().y + currBox.y * windowSize.y + paddingSize.y };
+				ImVec2 max = { ImGui::GetWindowPos().x + currBox.z * windowSize.x + paddingSize.x, ImGui::GetWindowPos().y + currBox.w * windowSize.y + paddingSize.y };
+				ImGui::GetWindowDrawList()->AddRect(min, max, ImVec2ImU32(color), 0, 0, boxSize / boxScale);
+			}
+			for (auto& it : boxList) {
+				ImVec4 box = it.first;
+				ImVec2 min = { ImGui::GetWindowPos().x + box.x * windowSize.x + paddingSize.x, ImGui::GetWindowPos().y + box.y * windowSize.y + paddingSize.y };
+				ImVec2 max = { ImGui::GetWindowPos().x + box.z * windowSize.x + paddingSize.x, ImGui::GetWindowPos().y + box.w * windowSize.y + paddingSize.y };
+				ImGui::GetWindowDrawList()->AddRect(min, max, ImVec2ImU32(it.second), 0, 0, boxSize / boxScale);
+			}
+			updateKeyboard(it.first);
+			ImGui::End();
+		}
+	}
+}
+
+void drawImage() {
+	glPushMatrix();
+	glRotatef(180, 1, 0, 0);
+	glBegin(GL_QUADS);
+	glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.f, -1.f);
+	glTexCoord2f(1.0f, 0.0f); glVertex2f(1.f, -1.f);
+	glTexCoord2f(1.0f, 1.0f); glVertex2f(1.f, 1.f);
+	glTexCoord2f(0.0f, 1.0f); glVertex2f(-1.f, 1.f);
+	glEnd();
+	glPopMatrix();
+}
+
+void render() {
+	ImGui::Render();
+	glEnable(GL_TEXTURE_2D);
+	glViewport(0, 0, g_Width, g_Height);
+	glClearColor(clear_color.x, clear_color.y, clear_color.z, clear_color.w);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glColor3f(1.0f, 1.0f, 1.0f);
+	if (textureName != "-1") {
+		glViewport(area.x, area.y, area.z, area.w);
+		glBindTexture(GL_TEXTURE_2D, imagesGL[textureName]);
+		drawImage();
+		glBindTexture(GL_TEXTURE_2D, 0);
+		drawBox(currBox, color);
+		for (auto& it : boxList)
+			drawBox(it.first, it.second);
+	}
+	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+	::SwapBuffers(g_MainWindow.hDC);
+}
+
+void callbackSave() {
+	std::wstring buffer;
+	buffer.resize(MAX_PATH);
+	GetModuleFileName(NULL, (LPWSTR)buffer.c_str(), MAX_PATH);
+	buffer.resize(buffer.rfind(L'\\'));
+	buffer += L"\\Result";
+	initSaveFolder(buffer);
+	std::wstringstream timeString;
+	timeString.str(L"");
+	timeString << "\\" << time(NULL) << "\\";
+	buffer += timeString.str();
+	initSaveFolder(buffer);
+
+	
+	for (auto& it : imagesCV) {
+		int cropI = 0;
+		auto& name = it.first;
+		auto mat = it.second.clone();
+		for (auto& save : boxList) {
+			cropI++;
+			drawRect(&mat, save.first, save.second, imageSize[name], boxSize);
+			std::string cropName = std::to_string(cropI) + "_" + name;
+			saveImage(cropMat(&it.second, save.first, imageSize[name]), buffer, cropName);
+		}
+		saveImage(mat, buffer, name);
+	}
 }

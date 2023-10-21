@@ -159,9 +159,12 @@
     <ClInclude Include="3rd\imgui\imstb_rectpack.h" />
     <ClInclude Include="3rd\imgui\imstb_textedit.h" />
     <ClInclude Include="3rd\imgui\imstb_truetype.h" />
+    <ClInclude Include="cropImage.h" />
     <ClInclude Include="DATA.h" />
+    <ClInclude Include="GlocalVariable.h" />
     <ClInclude Include="Grid.h" />
     <ClInclude Include="MainWindows.h" />
+    <ClInclude Include="update.h" />
     <ClInclude Include="utils.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
