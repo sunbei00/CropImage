@@ -144,9 +144,6 @@
     <ClCompile Include="3rd\imgui\imgui_impl_win32.cpp" />
     <ClCompile Include="3rd\imgui\imgui_tables.cpp" />
     <ClCompile Include="3rd\imgui\imgui_widgets.cpp" />
-    <ClCompile Include="DATA.cpp" />
-    <ClCompile Include="Main.cpp" />
-    <ClCompile Include="MainWindows.cpp" />
     <ClCompile Include="Run.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -160,10 +157,7 @@
     <ClInclude Include="3rd\imgui\imstb_textedit.h" />
     <ClInclude Include="3rd\imgui\imstb_truetype.h" />
     <ClInclude Include="cropImage.h" />
-    <ClInclude Include="DATA.h" />
     <ClInclude Include="GlocalVariable.h" />
-    <ClInclude Include="Grid.h" />
-    <ClInclude Include="MainWindows.h" />
     <ClInclude Include="update.h" />
     <ClInclude Include="utils.h" />
   </ItemGroup>
