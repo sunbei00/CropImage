@@ -38,7 +38,7 @@
 ## Result
 
 파일은 실행 파일이 있는 폴더에 Result 폴더가 생긴다.
-(Visual Studio에서 실행 시 (SolutionDir)/x64/CropImage/Result/(time)/)
+(Visual Studio에서 실행 시 (SolutionDir)/x64/Release/Result/(time)/)
 
 ![](https://github.com/sunbei00/CropImage/blob/CropImageWithImGui/Images/Result.png)
 
