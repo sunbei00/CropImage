@@ -3,6 +3,15 @@
 해당 프로그램은 여러 이미지의 같은 영역을 비교하기 위해서 사용된다.
 비교하기 위한 영역은 선택한 영역의 비율을 기반으로 다른 이미지에도 그대로 그려진다.
 
+## Env
+
+Visual Studtio 2019
+Release
+x64
+
+실행 파일이 있는 PATH에 한국어 지원x (영문만 가능)
+
+
 ## Initial Screen
 
 ![](https://github.com/sunbei00/CropImage/blob/CropImageWithImGui/Images/init.png)
@@ -45,6 +54,10 @@
 그렇다면 선택한 영역에 대한 사진과, 원본 이미지에서 그려진 박스를 확인할 수 있다.
 
 
+![](https://github.com/sunbei00/CropImage/blob/CropImageWithImGui/Images/1_3905_hr_recon_-0.0.png)
+![](https://github.com/sunbei00/CropImage/blob/CropImageWithImGui/Images/3905_hr_recon_-0.0.png)
 
 
+## TO DO
 
+Path에 한국어 지원
