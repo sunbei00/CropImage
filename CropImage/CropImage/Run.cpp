@@ -193,14 +193,20 @@ void openFiles() {
 			}
 			cv::Mat image = cv::imread(path.string(), cv::IMREAD_COLOR);
 			cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
+			cv::Mat img;
+			cv::cvtColor(image, img, cv::COLOR_RGB2RGBA);
+			
+			
 			unsigned int texture;
 			glGenTextures(1, &texture);
 			glBindTexture(GL_TEXTURE_2D, texture);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, image.cols, image.rows, 0, GL_RGB, GL_UNSIGNED_BYTE, image.data);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, img.cols, img.rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, img.data);
+			glFlush();
+			glFinish();
 			glBindTexture(GL_TEXTURE_2D, 0);
 
 			imagesGL.insert({ str, texture });
@@ -227,9 +233,15 @@ void getArea() {
 		size = imageSize[textureName];
 
 		while (size.first < 800 || size.second < 800) {
-			size.first *= 1.3f;
-			size.second *= 1.3f;
-			scale *= 1.3f;
+			size.first *= 1.1f;
+			size.second *= 1.1f;
+			scale *= 1.1f;
+		}
+
+		while (size.first > 1200 || size.second > 1200) {
+			size.first *= 0.9f;
+			size.second *= 0.9f;
+			scale *= 0.9f;
 		}
 		area.x = middle_w = middle_w - size.first / 2;
 		area.y = middle_h - size.second / 2;

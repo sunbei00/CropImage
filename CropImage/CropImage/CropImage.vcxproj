@@ -129,6 +129,8 @@
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(ProjectDir)3rd\imgui;$(ProjectDir)3rd\glfw;$(ProjectDir)3rd\GL;$(ProjectDir)3rd\opencv;$(ProjectDir)3rd\opencv/opencv2</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
+      <EnableParallelCodeGeneration>false</EnableParallelCodeGeneration>
+      <Optimization>Full</Optimization>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
